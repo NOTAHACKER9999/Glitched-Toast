@@ -2,7 +2,7 @@
 
 self.__uv$config = {
   prefix: "/uv/service/",
-  bare: "/service/",
+  bare: "https://uv.bare-server.net/",
   encodeUrl: Ultraviolet.codec.xor.encode,
   decodeUrl: Ultraviolet.codec.xor.decode,
   handler: "/uv/uv.handler.js",
