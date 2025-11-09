@@ -2,12 +2,12 @@
   "version": 2,
   "builds": [
     { "src": "api/service.js", "use": "@vercel/node" },
-    { "src": "public/uv/**", "use": "@vercel/static" },
+    { "src": "uv/**", "use": "@vercel/static" },
     { "src": "index.html", "use": "@vercel/static" }
   ],
   "routes": [
-    { "src": "/uv/service/(.*)", "dest": "/api/service/$1" },
-    { "src": "/uv/(.*)", "dest": "/public/uv/$1" },
-    { "src": "/(.*)", "dest": "/index.html" }
+    { "src": "/uv/service/(.*)", "dest": "/api/service/$1" },  // Bare server first
+    { "src": "/uv/(.*)", "dest": "/uv/$1" },                   // Static UV assets
+    { "src": "/(.*)", "dest": "/index.html" }                 // Root fallback
   ]
 }
