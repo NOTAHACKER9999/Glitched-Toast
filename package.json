@@ -1,0 +1,16 @@
+{
+  "name": "glitch-gate",
+  "version": "1.0.0",
+  "description": "Ultraviolet proxy frontend with Bare backend at /service/",
+  "main": "index.html",
+  "scripts": {
+    "start": "vercel dev"
+  },
+  "dependencies": {
+    "@tomphttp/bare-server-node": "^2.0.0",
+    "ultraviolet-static": "^3.2.8"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
