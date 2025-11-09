@@ -1,31 +1,13 @@
 {
-  "version": 3,
+  "version": 2,
   "builds": [
-    {
-      "src": "api/service.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "public/uv/**",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "index.html",
-      "use": "@vercel/static"
-    }
+    { "src": "api/service.js", "use": "@vercel/node" },
+    { "src": "public/uv/**", "use": "@vercel/static" },
+    { "src": "index.html", "use": "@vercel/static" }
   ],
   "routes": [
-    {
-      "src": "/uv/service/(.*)",
-      "dest": "/api/service/$1"
-    },
-    {
-      "src": "/uv/(.*)",
-      "dest": "/public/uv/$1"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
-    }
+    { "src": "/uv/service/(.*)", "dest": "/api/service/$1" },
+    { "src": "/uv/(.*)", "dest": "/public/uv/$1" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
