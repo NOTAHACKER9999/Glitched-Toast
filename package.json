@@ -2,14 +2,14 @@
   "name": "glitch-gate",
   "version": "1.0.0",
   "description": "Ultraviolet Proxy - Glitch Gate",
-  "main": "index.html",
+  "main": "server.js",
   "type": "module",
   "engines": {
     "node": ">=18"
   },
   "scripts": {
     "dev": "vercel dev",
-    "start": "vercel dev"
+    "start": "node server.js"
   },
   "dependencies": {
     "@tomphttp/bare-server-node": "^1.2.3",
