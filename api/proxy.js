@@ -1,17 +1,19 @@
-// api/proxy.js
-const fetch = require("node-fetch");
+// Use the built-in global fetch (available in Node 18+)
 const cheerio = require("cheerio");
 
 module.exports = async (req, res) => {
-  const target = req.query.url;
-  if (!target) return res.status(400).send("Missing ?url=");
-
   try {
+    const target = req.query.url;
+    if (!target) {
+      res.status(400).send("Missing ?url=");
+      return;
+    }
+
     const response = await fetch(target);
     const html = await response.text();
     const $ = cheerio.load(html);
 
-    // rewrite all <a href> and <form action> to stay in proxy
+    // Rewrite <a href> and <form action> links
     $("a[href]").each((_, el) => {
       const href = $(el).attr("href");
       if (href && !href.startsWith("javascript:") && !href.startsWith("#")) {
@@ -21,11 +23,13 @@ module.exports = async (req, res) => {
     });
     $("form[action]").each((_, el) => {
       const action = $(el).attr("action");
-      const absolute = new URL(action, target).toString();
-      $(el).attr("action", `/proxy?url=${encodeURIComponent(absolute)}`);
+      if (action) {
+        const absolute = new URL(action, target).toString();
+        $(el).attr("action", `/proxy?url=${encodeURIComponent(absolute)}`);
+      }
     });
 
-    // dark-mode injection
+    // Inject dark-mode style
     $("head").append(`
       <style>
         html,body{background:#0b0d0f!important;color:#e6eef8!important;}
@@ -34,7 +38,7 @@ module.exports = async (req, res) => {
     `);
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.send($.html());
+    res.status(200).send($.html());
   } catch (err) {
     console.error("Toast proxy error:", err);
     res.status(500).send("Toast proxy error: " + err.message);
