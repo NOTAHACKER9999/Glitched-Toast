@@ -1,93 +1,171 @@
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, Response, PlainTextResponse
+"""
+Diagnostic proxy for testing — safer, more verbose.
+
+Use:
+  uvicorn app:app --reload
+Or deploy to Vercel (app.py + requirements.txt).
+
+requirements.txt should include:
+fastapi
+uvicorn
+httpx
+beautifulsoup4
+html5lib
+"""
+
+import traceback
+import time
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import HTMLResponse, Response, PlainTextResponse, JSONResponse
 import httpx
 from bs4 import BeautifulSoup
 from urllib.parse import unquote_plus, urljoin
-import re
+from typing import Deque
+from collections import deque
 
-app = FastAPI(title="Full Server-side Proxy")
+app = FastAPI(title="Diagnostic Proxy")
 
-FRONTEND_HTML = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>Server-side Proxy Test</title>
-</head>
-<body style="background:#111;color:#fff;font-family:sans-serif;padding:10px">
-<h2>Server-side Proxy Test</h2>
-<form id="f">
-<input type="text" id="url" placeholder="Enter URL (e.g. duckduckgo.com)" style="width:300px"/>
-<button type="submit">Go</button>
-</form>
-<div id="content" style="margin-top:10px"></div>
-<script>
-const f=document.getElementById('f');
-const urlInput=document.getElementById('url');
-const content=document.getElementById('content');
-f.addEventListener('submit', async e=>{
-  e.preventDefault();
-  let u=urlInput.value.trim();
-  if(!u) return;
-  if(!/^https?:\/\//i.test(u)) u='https://'+u;
-  const res=await fetch('/proxy?url='+encodeURIComponent(u));
-  const html=await res.text();
-  content.innerHTML=html;
-});
-</script>
-</body>
-</html>
+# keep last N diagnostic entries in memory for quick debugging (not persistent)
+DIAG_HISTORY_MAX = 30
+_diag: Deque[dict] = deque(maxlen=DIAG_HISTORY_MAX)
+
+DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; DarkProxy/1.0)",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+FRONTEND_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Proxy Diagnostic</title></head>
+<body style="background:#111;color:#eee;font-family:system-ui;padding:12px">
+  <h2>Proxy Diagnostic UI</h2>
+  <p>Enter an address to proxy (include https:// recommended):</p>
+  <form id="f"><input id="u" style="width:420px" placeholder="https://example.com"/><button>Go</button></form>
+  <div id="out" style="margin-top:12px;border-radius:8px;padding:8px;background:#0b0d0f"></div>
+  <script>
+    const f=document.getElementById('f'), u=document.getElementById('u'), out=document.getElementById('out');
+    f.addEventListener('submit', async e=>{
+      e.preventDefault();
+      let url=u.value.trim();
+      if(!url) return;
+      if(!/^https?:\\/\\//i.test(url)) url='https://'+url;
+      out.innerText = 'Loading...';
+      try{
+        const resp = await fetch('/proxy?url='+encodeURIComponent(url));
+        // if html, show it inside out
+        const ct = resp.headers.get('content-type') || '';
+        if(ct.includes('text/html')) {
+          const text = await resp.text();
+          out.innerHTML = text;
+        } else {
+          const blob = await resp.blob();
+          out.innerText = 'Non-HTML response (content-type: '+ct+') — length: '+blob.size;
+        }
+      }catch(err){
+        out.innerText = 'Fetch error: '+err;
+      }
+    });
+  </script>
+</body></html>
 """
 
+def add_diag(entry: dict):
+    entry['_ts'] = time.time()
+    _diag.appendleft(entry)
+
 @app.get("/", response_class=HTMLResponse)
-async def home():
+async def index():
     return FRONTEND_HTML
 
-def rewrite_html(base_url: str, html: str) -> str:
-    soup = BeautifulSoup(html, "html.parser")
-    
-    # Inject <base> for relative links
-    head = soup.head
-    if head:
-        base_tag = soup.new_tag("base", href=base_url)
-        head.insert(0, base_tag)
-
-    # Dark mode CSS
-    style = soup.new_tag("style")
-    style.string = """
-        body { background:#111!important; color:#fff!important; }
-        a { color:#8ab4ff!important; }
-    """
-    if head:
-        head.append(style)
-
-    # Rewrite links to go through /proxy
-    for tag in soup.find_all(["a","link","script","img","iframe","form"]):
-        for attr in ["href","src","action"]:
-            if tag.has_attr(attr):
-                val = tag[attr]
-                if val and not val.startswith(("javascript:","data:","mailto:")):
-                    abs_url = urljoin(base_url, val)
-                    tag[attr] = f"/proxy?url={abs_url}"
-
-    return str(soup)
+@app.get("/_diag")
+async def diag():
+    # return last few diagnostic entries (json)
+    return JSONResponse([dict(e) for e in list(_diag)])
 
 @app.get("/proxy")
-async def proxy(url: str = None):
+async def proxy(request: Request, url: str = None):
+    start = time.time()
     if not url:
         return PlainTextResponse("Missing ?url=...", status_code=400)
-    
-    target_url = unquote_plus(url)
-    async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
-        try:
-            r = await client.get(target_url)
-        except Exception as e:
-            raise HTTPException(502, f"Fetch error: {e}")
+    try:
+        target = unquote_plus(url)
+    except Exception:
+        target = url
 
-    content_type = r.headers.get("content-type","")
-    if "text/html" in content_type.lower():
-        html = rewrite_html(target_url, r.text)
-        return HTMLResponse(html, status_code=r.status_code)
-    else:
-        # For images, JS, CSS: serve directly
-        return Response(content=r.content, media_type=content_type)
+    # Very basic validation
+    if not (target.startswith("http://") or target.startswith("https://")):
+        return PlainTextResponse("Target must start with http:// or https://", status_code=400)
+
+    # Build headers to send upstream; forward client's User-Agent if present
+    headers = DEFAULT_HEADERS.copy()
+    incoming_ua = request.headers.get("user-agent")
+    if incoming_ua:
+        headers["User-Agent"] = incoming_ua
+
+    # Try to fetch with httpx and catch errors — provide clear diagnostics
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=20.0, headers=headers) as client:
+            upstream = await client.get(target)
+    except Exception as e:
+        tb = traceback.format_exc()
+        diag = {"url": target, "error": str(e), "trace": tb}
+        add_diag(diag)
+        # Return a helpful HTML error so you can see it in the browser
+        body = f"<h2>Fetch error</h2><pre>{str(e)}</pre><h3>Traceback</h3><pre>{tb}</pre>"
+        return HTMLResponse(body, status_code=502)
+
+    # Save some diagnostics about the upstream response
+    diag = {
+        "url": target,
+        "status_code": upstream.status_code,
+        "content_type": upstream.headers.get("content-type"),
+        "headers_sample": {k: upstream.headers.get(k) for k in ("content-type","content-length","x-frame-options","content-security-policy")},
+        "elapsed_s": upstream.elapsed.total_seconds() if hasattr(upstream, "elapsed") else None,
+    }
+    add_diag(diag)
+
+    content_type = upstream.headers.get("content-type", "").lower()
+
+    # If HTML-like, inject <base> and return rewritten HTML
+    if "text/html" in content_type or content_type.startswith("application/xhtml"):
+        try:
+            # Use html5lib or the default parser if not installed
+            soup = BeautifulSoup(upstream.text, "html.parser")
+            # inject base
+            if soup.head:
+                base_tag = soup.new_tag("base", href=target)
+                # ensure we don't duplicate base tags
+                existing = soup.head.find("base")
+                if existing:
+                    existing['href'] = target
+                else:
+                    soup.head.insert(0, base_tag)
+            # optional small dark css injection (non-destructive)
+            if soup.head:
+                style = soup.new_tag("style")
+                style.string = "html,body{background:#0b0d0f!important;color:#e6eef8!important;} a{color:#8ab4ff!important}"
+                soup.head.append(style)
+            out_html = str(soup)
+            # return with original upstream status code
+            return HTMLResponse(content=out_html, status_code=upstream.status_code, headers={"x-proxy-from": target})
+        except Exception as e:
+            tb = traceback.format_exc()
+            add_diag({"url": target, "parse_error": str(e), "trace": tb})
+            return HTMLResponse(f"<h2>Parse error</h2><pre>{str(e)}</pre><pre>{tb}</pre>", status_code=500)
+
+    # For non-HTML (images, CSS, JS), return bytes with original content type
+    try:
+        ct = upstream.headers.get("content-type", "application/octet-stream")
+        # Remove hop-by-hop headers if present (we won't forward them)
+        headers_out = {}
+        # copy caching headers for convenience
+        for k in ("content-length","cache-control","etag","last-modified"):
+            v = upstream.headers.get(k)
+            if v: headers_out[k] = v
+        # include debug header pointing to source
+        headers_out["x-proxy-from"] = target
+        return Response(content=upstream.content, media_type=ct, headers=headers_out, status_code=upstream.status_code)
+    except Exception as e:
+        tb = traceback.format_exc()
+        add_diag({"url": target, "stream_error": str(e), "trace": tb})
+        return HTMLResponse(f"<h2>Stream error</h2><pre>{str(e)}</pre><pre>{tb}</pre>", status_code=500)
