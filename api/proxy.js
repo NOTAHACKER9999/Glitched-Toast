@@ -5,7 +5,9 @@ function decodeParam(u) {
   try { return Buffer.from(u, "base64").toString("utf8"); }
   catch { return u; }
 }
+
 function encode(u) { return encodeURIComponent(Buffer.from(u).toString("base64")); }
+
 function proxify(url) { return "/proxy?u=" + encode(url); }
 
 module.exports = async (req, res) => {
@@ -21,7 +23,7 @@ module.exports = async (req, res) => {
 
     const type = r.headers.get("content-type") || "";
 
-    // Forward all original headers except content-length (let Vercel handle it)
+    // Forward all headers from the original response
     r.headers.forEach((v, k) => {
       if (k.toLowerCase() !== "content-length") res.setHeader(k, v);
     });
@@ -30,7 +32,7 @@ module.exports = async (req, res) => {
       let html = await r.text();
       const $ = cheerio.load(html, { decodeEntities: false });
 
-      // Only rewrite <a> and <form> links — leave scripts, images, CSS alone
+      // Only rewrite <a> links and <form> actions
       $("a[href]").each((_, el) => {
         try {
           const abs = new URL($(el).attr("href"), target).toString();
@@ -45,19 +47,21 @@ module.exports = async (req, res) => {
         } catch {}
       });
 
-      // Inject <base> so relative asset URLs work
+      // Inject <base> for relative assets (images, scripts, CSS)
       $("head").prepend(`<base href="${target}">`);
 
-      // Inject hidden div for frontend to know original URL
+      // Hidden div to tell frontend the original URL
       $("body").prepend(`<div id="__proxied_original" style="display:none">${target}</div>`);
 
+      // Allow iframe
       res.setHeader("x-frame-options", "ALLOWALL");
       res.send($.html());
     } else {
-      // For non-HTML (images, CSS, JS) just pipe the original content
+      // Non-HTML: stream directly (images, JS, CSS, etc.)
       const buf = await r.buffer();
       res.send(buf);
     }
+
   } catch (err) {
     console.error("Proxy error:", err);
     res.status(500).send("Proxy error: " + err.message);
