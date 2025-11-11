@@ -1,14 +1,17 @@
 {
-  "name": "Toast",
+  "name": "toast‑proxy",
   "version": "1.0.0",
-  "description": "Darkmode Proxy Browser running on Vercel using FastAPI backend",
-  "author": "GLITCH OVERRIDE",
-  "license": "MIT",
+  "description": "Toast Proxy Browser for Vercel – full JS browser proxy",
+  "main": "api/proxy.js",
   "scripts": {
-    "start": "uvicorn app:app --host 0.0.0.0 --port 8000"
+    "dev": "vercel dev"
   },
-  "dependencies": {},
+  "dependencies": {
+    "puppeteer-core": "^21.3.8",
+    "chrome-aws-lambda": "^20.0.0",
+    "express": "^4.18.2"
+  },
   "engines": {
-    "python": ">=3.10"
+    "node": ">=18"
   }
 }
