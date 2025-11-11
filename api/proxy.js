@@ -1,104 +1,65 @@
 // api/proxy.js
-const fetch = require('node-fetch');
-const cheerio = require('cheerio');
+const fetch = require("node-fetch");
+const cheerio = require("cheerio");
 
-function decodeBase64Param(u){
-  try{
-    return decodeURIComponent(Buffer.from(u, 'base64').toString('utf8'));
-  }catch(e){
-    try { return decodeURIComponent(u); } catch(e2) { return u; }
+function decodeParam(u) {
+  try {
+    return decodeURIComponent(Buffer.from(u, "base64").toString("utf8"));
+  } catch {
+    return u;
   }
 }
-
-function encodeForProxy(url){
-  return '/proxy?u=' + encodeURIComponent(Buffer.from(url).toString('base64'));
+function encode(u) {
+  return encodeURIComponent(Buffer.from(u).toString("base64"));
+}
+function proxify(url) {
+  return `/proxy?u=${encode(url)}`;
 }
 
 module.exports = async (req, res) => {
-  const u = req.query.u || req.query.url || '';
-  if(!u){
-    res.status(400).send('Missing url parameter');
-    return;
-  }
-  const target = decodeBase64Param(u);
-  if(!/^https?:\/\//i.test(target)) {
-    res.status(400).send('Invalid URL');
-    return;
-  }
+  const q = req.query.u;
+  if (!q) return res.status(400).send("Missing ?u=");
+  const target = decodeParam(q);
 
   try {
-    // forward headers (some minimal forwarding)
-    const headers = { 'user-agent': req.headers['user-agent'] || 'ProxyBrowser/1.0' };
-    const resp = await fetch(target, { headers, redirect: 'follow' });
+    const r = await fetch(target, {
+      headers: { "user-agent": req.headers["user-agent"] || "GlitchBrowser/1.0" },
+    });
+    const type = r.headers.get("content-type") || "";
+    if (type.includes("text/html")) {
+      let html = await r.text();
+      const $ = cheerio.load(html, { decodeEntities: false });
 
-    // copy status for non-OK? typically 200
-    const contentType = resp.headers.get('content-type') || '';
-    // Remove restrictive headers
-    res.removeHeader && res.removeHeader('content-security-policy');
-
-    // If HTML, rewrite
-    if (contentType.includes('text/html')) {
-      const text = await resp.text();
-      const $ = cheerio.load(text, { decodeEntities: false });
-
-      // inject marker with original URL so client can read the original URL even if base tag changed
-      $('body').prepend(`<div id="__proxied_original" style="display:none">${target}</div>`);
-
-      // rewrite links and resources to route through proxy
-      $('a[href]').each((i, el) => {
-        const href = $(el).attr('href');
-        if(!href) return;
-        try{
-          const abs = new URL(href, target).toString();
-          $(el).attr('href', encodeForProxy(abs));
-          $(el).attr('target',''); // keep inside frame
-        }catch(e){}
+      $("a[href]").each((_, el) => {
+        const abs = new URL($(el).attr("href"), target).toString();
+        $(el).attr("href", proxify(abs)).attr("target", "");
+      });
+      $("form[action]").each((_, el) => {
+        const abs = new URL($(el).attr("action"), target).toString();
+        $(el).attr("action", proxify(abs));
+      });
+      $("[src]").each((_, el) => {
+        const abs = new URL($(el).attr("src"), target).toString();
+        $(el).attr("src", proxify(abs));
+      });
+      $("link[href]").each((_, el) => {
+        const abs = new URL($(el).attr("href"), target).toString();
+        $(el).attr("href", proxify(abs));
       });
 
-      // rewrite forms
-      $('form[action]').each((i, el) => {
-        const act = $(el).attr('action');
-        try{
-          const abs = new URL(act, target).toString();
-          $(el).attr('action', encodeForProxy(abs));
-        }catch(e){}
-      });
+      $("head").prepend(`<base href="${target}">`);
+      $("body").prepend(`<div id="__proxied_original" style="display:none">${target}</div>`);
 
-      // rewrite src attributes for scripts, imgs, iframes, link rel=stylesheet
-      $('[src]').each((i, el) => {
-        const src = $(el).attr('src');
-        try{
-          const abs = new URL(src, target).toString();
-          $(el).attr('src', '/proxy?u=' + encodeURIComponent(Buffer.from(abs).toString('base64')));
-        }catch(e){}
-      });
-
-      $('link[href]').each((i, el) => {
-        const href = $(el).attr('href');
-        try{
-          const abs = new URL(href, target).toString();
-          $(el).attr('href', '/proxy?u=' + encodeURIComponent(Buffer.from(abs).toString('base64')));
-        }catch(e){}
-      });
-
-      // remove or relax CSP & X-Frame-Options headers by clearing them when sending
-      res.setHeader('content-type', 'text/html; charset=UTF-8');
-      res.setHeader('x-frame-options', 'ALLOWALL');
-      // send modified html
-      res.status(200).send($.html());
-      return;
+      res.setHeader("content-type", "text/html; charset=utf-8");
+      res.setHeader("x-frame-options", "ALLOWALL");
+      res.send($.html());
     } else {
-      // Non-HTML: stream bytes through and set same content-type
-      const buffer = await resp.buffer();
-      const ct = resp.headers.get('content-type') || '';
-      res.setHeader('content-type', ct);
-      res.setHeader('x-frame-options', 'ALLOWALL');
-      // also forward cache headers maybe
-      res.status(resp.status).send(buffer);
-      return;
+      const buf = await r.buffer();
+      res.setHeader("content-type", type);
+      res.setHeader("x-frame-options", "ALLOWALL");
+      res.send(buf);
     }
   } catch (err) {
-    console.error('proxy error', err);
-    res.status(500).send('Proxy error: ' + err.toString());
+    res.status(500).send("Proxy error: " + err);
   }
 };
