@@ -1,0 +1,14 @@
+{
+  "name": "Toast",
+  "version": "1.0.0",
+  "description": "Darkmode Proxy Browser running on Vercel using FastAPI backend",
+  "author": "GLITCH OVERRIDE",
+  "license": "MIT",
+  "scripts": {
+    "start": "uvicorn app:app --host 0.0.0.0 --port 8000"
+  },
+  "dependencies": {},
+  "engines": {
+    "python": ">=3.10"
+  }
+}
