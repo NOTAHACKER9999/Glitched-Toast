@@ -2,9 +2,11 @@
   "name": "toast-proxy",
   "version": "1.0.0",
   "main": "api/proxy.js",
+  "scripts": {
+    "dev": "vercel dev"
+  },
   "dependencies": {
-    "chrome-aws-lambda": "10.1.0",
-    "puppeteer-core": "10.2.0",
+    "@playwright/test": "1.47.1",
     "express": "4.18.2"
   },
   "engines": {
