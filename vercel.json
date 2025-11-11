@@ -1,7 +1,13 @@
 {
   "version": 1,
   "routes": [
-    { "src": "/proxy", "dest": "/api/proxy.js" },
-    { "src": "/(.*)", "dest": "/index.html" }
+    {
+      "src": "/proxy",
+      "dest": "/api/proxy.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
   ]
 }
