@@ -1,53 +1,73 @@
 const fetch = require('node-fetch');
-const { URL } = require('url');
+const cheerio = require('cheerio');
 
 function decodeBase64Param(u) {
   try { return Buffer.from(u, 'base64').toString('utf8'); }
   catch { return u; }
 }
 
+function encodeForProxy(url) {
+  return '/proxy?u=' + encodeURIComponent(Buffer.from(url).toString('base64'));
+}
+
 module.exports = async (req, res) => {
-  const u = req.query.u || req.query.url || '';
+  const u = req.query.u || '';
   if (!u) return res.status(400).send('Missing url parameter');
 
   const target = decodeBase64Param(u);
   if (!/^https?:\/\//i.test(target)) return res.status(400).send('Invalid URL');
 
   try {
-    // Build full target URL including path + query
-    const urlObj = new URL(target);
+    const headers = { 'user-agent': req.headers['user-agent'] || 'ProxyBrowser/1.0' };
+    const resp = await fetch(target, { headers, redirect: 'follow' });
+    const contentType = resp.headers.get('content-type') || '';
 
-    // Forward request headers, but remove host to prevent conflicts
-    const headers = { ...req.headers };
-    delete headers.host;
-
-    // Forward method and body if POST
-    const options = {
-      method: req.method,
-      headers,
-      redirect: 'manual',
-      body: req.method === 'POST' || req.method === 'PUT' ? req : undefined,
-    };
-
-    const resp = await fetch(urlObj.toString(), options);
-
-    // Copy status code
-    res.status(resp.status);
-
-    // Copy headers (except content-length, to avoid errors)
+    // Forward headers (except content-length)
     resp.headers.forEach((v, k) => {
       if (k.toLowerCase() !== 'content-length') res.setHeader(k, v);
     });
 
-    // Force iframe load
-    res.setHeader('x-frame-options', 'ALLOWALL');
+    if (contentType.includes('text/html')) {
+      const html = await resp.text();
+      const $ = cheerio.load(html, { decodeEntities: false });
 
-    // Stream response back
-    const buffer = await resp.buffer();
-    res.send(buffer);
+      // Rewrite only links and forms
+      $('a[href]').each((i, el) => {
+        const href = $(el).attr('href');
+        if (!href) return;
+        try {
+          const abs = new URL(href, target).toString();
+          $(el).attr('href', encodeForProxy(abs)).attr('target', '');
+        } catch {}
+      });
+
+      $('form[action]').each((i, el) => {
+        const act = $(el).attr('action');
+        if (!act) return;
+        try {
+          const abs = new URL(act, target).toString();
+          $(el).attr('action', encodeForProxy(abs));
+        } catch {}
+      });
+
+      // Inject <base> so relative asset paths still work
+      $('head').prepend(`<base href="${target}">`);
+
+      // Keep HTML otherwise unchanged
+      res.setHeader('content-type', 'text/html; charset=UTF-8');
+      res.setHeader('x-frame-options', 'ALLOWALL');
+
+      return res.status(200).send($.html());
+    } else {
+      // Non-HTML content: forward unchanged
+      const buffer = await resp.buffer();
+      res.setHeader('content-type', contentType);
+      res.setHeader('x-frame-options', 'ALLOWALL');
+      return res.status(resp.status).send(buffer);
+    }
 
   } catch (err) {
-    console.error('Reverse proxy error:', err);
-    res.status(500).send('Reverse proxy error: ' + err.message);
+    console.error('Proxy error:', err);
+    return res.status(500).send('Proxy error: ' + err.toString());
   }
 };
