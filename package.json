@@ -1,11 +1,7 @@
 {
   "name": "toast-proxy",
   "version": "1.0.0",
-  "description": "Toast Proxy Browser for Vercel – full JS browser proxy",
-  "scripts": {
-    "vercel-build": "echo 'skip postinstall'",
-    "dev": "vercel dev"
-  },
+  "main": "api/proxy.js",
   "dependencies": {
     "chrome-aws-lambda": "10.1.0",
     "puppeteer-core": "10.2.0",
