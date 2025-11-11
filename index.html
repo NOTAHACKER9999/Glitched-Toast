@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Proxy Browser</title>
+  <style>
+    :root{
+      --bg:#0b0b0d; --panel:#0f1113; --muted:#9aa0a6; --accent:#1f8feb; --text:#e6e9ee;
+    }
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial;}
+    body{background:var(--bg);color:var(--text);display:flex;flex-direction:column}
+    .topbar{display:flex;align-items:center;padding:10px;gap:8px;background:linear-gradient(180deg,#0c0e10, #0f1113);border-bottom:1px solid rgba(255,255,255,0.03)}
+    .tabs{display:flex;gap:6px;align-items:center;flex:1;overflow:auto;padding:6px}
+    .tab{background:transparent;padding:8px 10px;border-radius:8px;color:var(--muted);border:1px solid transparent;cursor:pointer;white-space:nowrap}
+    .tab.active{background:linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0));color:var(--text);border-color:rgba(255,255,255,0.04)}
+    .controls{display:flex;gap:6px;align-items:center}
+    .btn{background:transparent;border:1px solid rgba(255,255,255,0.04);padding:8px;border-radius:8px;color:var(--muted);cursor:pointer}
+    .address-bar{flex:1;display:flex;align-items:center;padding:6px;background:var(--panel);border-radius:8px;border:1px solid rgba(255,255,255,0.04)}
+    .address-bar input{background:transparent;border:0;outline:0;color:var(--text);width:100%;padding:6px 8px}
+    .sidebar{display:flex;gap:8px;align-items:center}
+    .bookmarkbar{display:flex;gap:6px;padding:8px;background:rgba(255,255,255,0.01);border-bottom:1px solid rgba(255,255,255,0.02)}
+    .bookmark{padding:6px 8px;border-radius:6px;background:transparent;border:1px solid rgba(255,255,255,0.02);color:var(--muted);cursor:pointer}
+    .iframe-wrap{flex:1;display:flex;flex-direction:column;height:calc(100vh - 140px);border-top:1px solid rgba(255,255,255,0.02)}
+    iframe{border:0;flex:1;width:100%;height:100%;background:white}
+    .controls .small{padding:6px 8px;font-size:13px}
+    .settings-panel{position:fixed;right:16px;top:64px;background:var(--panel);border:1px solid rgba(255,255,255,0.04);padding:12px;border-radius:10px;min-width:220px;z-index:100}
+    .hidden{display:none}
+    .muted{color:var(--muted);font-size:13px}
+    .add-tab{padding:6px 10px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.03);color:var(--muted);cursor:pointer}
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="tabs" id="tabs"></div>
+    <div class="controls">
+      <button class="btn" id="newTab">+ Tab</button>
+      <div style="width:14px"></div>
+      <div class="address-bar">
+        <input id="address" placeholder="Enter URL or search..." />
+      </div>
+      <button class="btn" id="goBtn">Go</button>
+      <button class="btn" id="settingsBtn">⚙</button>
+    </div>
+  </div>
+
+  <div class="bookmarkbar" id="bookmarkbar"></div>
+
+  <div style="display:flex;gap:8px;padding:8px;align-items:center">
+    <div class="muted">Original URL shown here (editable). Iframe is proxied/encoded.</div>
+  </div>
+
+  <div class="iframe-wrap">
+    <iframe id="browserFrame" sandbox="allow-forms allow-scripts allow-pointer-lock allow-popups allow-modals allow-same-origin"></iframe>
+  </div>
+
+  <div id="settings" class="settings-panel hidden">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <strong>Settings</strong>
+      <button id="closeSettings" class="btn small">✕</button>
+    </div>
+    <hr style="border:0;border-top:1px solid rgba(255,255,255,0.04);margin:8px 0" />
+    <div style="margin-bottom:8px">
+      <label class="muted">Default search engine / start URL</label>
+      <input id="defaultStart" style="width:100%;padding:8px;margin-top:6px;border-radius:6px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--text)" placeholder="https://duckduckgo.com" />
+    </div>
+    <div style="margin-bottom:8px">
+      <label class="muted">Proxy encode mode</label>
+      <select id="encodeMode" style="width:100%;padding:8px;margin-top:6px;border-radius:6px">
+        <option value="b64">base64 (default)</option>
+      </select>
+    </div>
+    <div>
+      <button id="saveSettings" class="btn">Save</button>
+    </div>
+  </div>
+
+<script>
+/* ---------- Utilities ---------- */
+const dblEncode = (s) => btoa(unescape(encodeURIComponent(s)));
+const dblDecode = (b) => decodeURIComponent(escape(atob(b)));
+
+function proxifyUrl(raw) {
+  if (!raw) return '';
+  // accept bare domains or http(s)
+  if (!raw.match(/^https?:\/\//i)) {
+    if (raw.includes(' ')) {
+      // treat as search
+      return localState.defaultStart || 'https://duckduckgo.com';
+    }
+    raw = 'https://' + raw;
+  }
+  return '/proxy?u=' + encodeURIComponent(dblEncode(raw));
+}
+
+/* ---------- State & storage ---------- */
+const localState = {
+  tabs: [],
+  active: 0,
+  bookmarks: [],
+  defaultStart: 'https://duckduckgo.com'
+};
+
+function loadState(){
+  try{
+    const s = JSON.parse(localStorage.getItem('proxyBrowser.v1')||'{}');
+    Object.assign(localState, s);
+  }catch(e){}
+}
+function saveState(){
+  localStorage.setItem('proxyBrowser.v1', JSON.stringify({
+    tabs: localState.tabs,
+    active: localState.active,
+    bookmarks: localState.bookmarks,
+    defaultStart: localState.defaultStart
+  }));
+}
+
+/* ---------- UI ---------- */
+const tabsEl = document.getElementById('tabs');
+const addressEl = document.getElementById('address');
+const frame = document.getElementById('browserFrame');
+const bookmarkbar = document.getElementById('bookmarkbar');
+const settings = document.getElementById('settings');
+
+function renderTabs(){
+  tabsEl.innerHTML = '';
+  localState.tabs.forEach((t,i)=>{
+    const el = document.createElement('div');
+    el.className = 'tab' + (i===localState.active? ' active':'');
+    el.textContent = t.title || t.orig || 'New Tab';
+    el.onclick = ()=>{ localState.active = i; saveState(); applyActiveTab(); renderTabs(); };
+    el.oncontextmenu = (ev)=>{ ev.preventDefault(); closeTab(i); };
+    tabsEl.appendChild(el);
+  });
+  const add = document.createElement('div'); add.className='add-tab'; add.textContent = '+'; add.onclick = newTab;
+  tabsEl.appendChild(add);
+}
+
+function renderBookmarks(){
+  bookmarkbar.innerHTML = '';
+  (localState.bookmarks||[]).forEach(b=>{
+    const bEl = document.createElement('button');
+    bEl.className = 'bookmark';
+    bEl.textContent = b.title||b.url;
+    bEl.onclick = ()=>{ openUrl(b.url); };
+    bookmarkbar.appendChild(bEl);
+  });
+  const add = document.createElement('button'); add.className='bookmark'; add.textContent='+'; add.onclick=()=>{
+    const url = prompt('Bookmark URL (https://...)');
+    if(!url) return;
+    localState.bookmarks.push({title:url,url}); saveState(); renderBookmarks();
+  };
+  bookmarkbar.appendChild(add);
+}
+
+function applyActiveTab(){
+  const t = localState.tabs[localState.active];
+  if(!t) return;
+  addressEl.value = t.orig || '';
+  frame.src = proxifyUrl(t.orig || localState.defaultStart);
+  renderTabs();
+}
+
+function newTab(initialUrl){
+  const url = initialUrl || localState.defaultStart;
+  localState.tabs.push({orig: url, title: 'New Tab'});
+  localState.active = localState.tabs.length -1;
+  saveState();
+  applyActiveTab();
+  renderTabs();
+}
+
+function closeTab(index){
+  if(localState.tabs.length<=1) return;
+  localState.tabs.splice(index,1);
+  if(localState.active>=localState.tabs.length) localState.active = localState.tabs.length-1;
+  saveState(); renderTabs(); applyActiveTab();
+}
+
+/* ---------- Setup & events ---------- */
+document.getElementById('goBtn').onclick = ()=>{ const v = addressEl.value.trim(); if(!v) { openUrl(localState.defaultStart); return;} openUrl(v); };
+document.getElementById('newTab').onclick = ()=> newTab(localState.defaultStart);
+
+addressEl.addEventListener('keydown', (e)=>{
+  if(e.key==='Enter'){ document.getElementById('goBtn').click(); }
+});
+
+function openUrl(raw){
+  // if looks like a search (space), open default search on query or prefix with https
+  let orig = raw.trim();
+  if(!orig.match(/^https?:\/\//i) && orig.includes(' ')){
+    // perform search on default engine
+    const q = encodeURIComponent(orig);
+    orig = 'https://duckduckgo.com/?q=' + q;
+  } else if(!orig.match(/^https?:\/\//i)){
+    orig = 'https://' + orig;
+  }
+  const cur = localState.tabs[localState.active];
+  cur.orig = orig;
+  cur.title = cur.title || orig;
+  saveState();
+  applyActiveTab();
+}
+
+document.getElementById('settingsBtn').onclick = ()=>{ settings.classList.toggle('hidden'); document.getElementById('defaultStart').value = localState.defaultStart; };
+document.getElementById('closeSettings').onclick = ()=> settings.classList.add('hidden');
+document.getElementById('saveSettings').onclick = ()=>{
+  const v = document.getElementById('defaultStart').value.trim();
+  if(v) localState.defaultStart = v;
+  saveState();
+  settings.classList.add('hidden');
+  alert('Saved');
+};
+
+/* Update tab title when iframe loads (we serve HTML same-origin via proxy) */
+frame.addEventListener('load', ()=>{
+  try{
+    const doc = frame.contentDocument;
+    const title = doc && doc.title ? doc.title : null;
+    if(title){
+      localState.tabs[localState.active].title = title;
+      saveState();
+      renderTabs();
+    }
+    // Also, attempt to find the original URL (we encoded it into a meta tag / or location)
+    // The proxy injects an element with id="__proxied_original" containing original URL
+    try{
+      const marker = doc.getElementById('__proxied_original');
+      if(marker) {
+        addressEl.value = marker.textContent || localState.tabs[localState.active].orig || '';
+        localState.tabs[localState.active].orig = marker.textContent || localState.tabs[localState.active].orig;
+        saveState();
+      }
+    }catch(e){}
+  }catch(e){
+    // cross-origin would happen if proxy fails. We rely on proxy served from same origin.
+    console.warn('Could not access iframe document:', e);
+  }
+});
+
+/* boot */
+loadState();
+if(!localState.tabs || !localState.tabs.length) newTab(localState.defaultStart);
+renderTabs();
+renderBookmarks();
+applyActiveTab();
+</script>
+</body>
+</html>
