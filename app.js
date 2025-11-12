@@ -1,4 +1,4 @@
-// app.js - fixed version for Toast Browser
+// app.js - Toast Browser full version
 
 const proxyBase = '/api/proxy?url=';
 const urlInput = document.getElementById('urlInput');
@@ -18,7 +18,7 @@ const forwardBtn = document.getElementById('forwardBtn');
 let historyStack = [];
 let historyPos = -1;
 
-// Toast helper
+// Toast notifications
 function toast(text, type='info', ms=3500){
   const el = document.createElement('div');
   el.className = `toast ${type}`;
@@ -40,6 +40,7 @@ function saveBookmarks(list){
 }
 function defaultBookmarks(){
   return [
+    {title:'DuckDuckGo', url:'https://duckduckgo.com/'},
     {title:'MDN', url:'https://developer.mozilla.org/'},
     {title:'Wikipedia', url:'https://en.wikipedia.org/'},
     {title:'JS Alert', url:"javascript:alert('hi from bookmarklet!')"}
@@ -216,10 +217,14 @@ webFrame.addEventListener('load', ()=>{
 // --- Init ---
 (function init(){
   loadBookmarks();
-  if(location.hash && location.hash.length>1){
-    const target = decodeURIComponent(location.hash.slice(1));
-    urlInput.value = target;
-    navigateTo(target, true);
-  }
+
+  // Default to DuckDuckGo if no hash
+  let initialUrl = location.hash && location.hash.length > 1 
+    ? decodeURIComponent(location.hash.slice(1)) 
+    : 'https://duckduckgo.com/';  // DEFAULT
+
+  urlInput.value = initialUrl;
+  navigateTo(initialUrl, true);
+
   toast('Toast browser ready', 'info', 2000);
 })();
