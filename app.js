@@ -1,5 +1,6 @@
-// app.js - controls UI, bookmarks, URL bar, and communicates with proxy backend
-const proxyBase = '/api/proxy?url='; // for Vercel; server.js uses same path
+// app.js - fixed version for Toast Browser
+
+const proxyBase = '/api/proxy?url=';
 const urlInput = document.getElementById('urlInput');
 const goBtn = document.getElementById('goBtn');
 const navForm = document.getElementById('navForm');
@@ -17,6 +18,7 @@ const forwardBtn = document.getElementById('forwardBtn');
 let historyStack = [];
 let historyPos = -1;
 
+// Toast helper
 function toast(text, type='info', ms=3500){
   const el = document.createElement('div');
   el.className = `toast ${type}`;
@@ -26,7 +28,7 @@ function toast(text, type='info', ms=3500){
   setTimeout(()=> el.remove(), ms);
 }
 
-// load bookmarks from localStorage
+// --- Bookmarks ---
 function loadBookmarks(){
   const raw = localStorage.getItem('toast_bookmarks');
   let list = raw ? JSON.parse(raw) : defaultBookmarks();
@@ -38,9 +40,9 @@ function saveBookmarks(list){
 }
 function defaultBookmarks(){
   return [
-    {title:'Example: MDN', url:'https://developer.mozilla.org/'},
-    {title:'Example: Wikipedia', url:'https://en.wikipedia.org/'},
-    {title:'JS Alert (bookmarklet)', url:"javascript:alert('hi from bookmarklet!')"}
+    {title:'MDN', url:'https://developer.mozilla.org/'},
+    {title:'Wikipedia', url:'https://en.wikipedia.org/'},
+    {title:'JS Alert', url:"javascript:alert('hi from bookmarklet!')"}
   ];
 }
 function renderBookmarks(list){
@@ -83,7 +85,6 @@ function renderBookmarkList(list){
 }
 
 function onBookmarkClick(bookmark){
-  // Bookmarklet handling
   if(typeof bookmark.url === 'string' && bookmark.url.trim().toLowerCase().startsWith('javascript:')){
     runBookmarkletInIframe(bookmark.url);
     return;
@@ -94,13 +95,11 @@ function onBookmarkClick(bookmark){
 
 function runBookmarkletInIframe(jsHref){
   const code = jsHref.replace(/^javascript:/i, '');
-  // execute in iframe's context (works because content is proxied same-origin)
   if(!webFrame.contentWindow){
     toast('Web area not ready', 'info');
     return;
   }
   try {
-    // if iframe not yet loaded, wait for load
     if(webFrame.contentDocument.readyState !== 'complete'){
       webFrame.addEventListener('load', function onl(){
         webFrame.removeEventListener('load', onl);
@@ -120,42 +119,47 @@ function runBookmarkletInIframe(jsHref){
   }
 }
 
+// --- Navigation ---
 function normalizeUrl(input){
   input = input.trim();
-  // If js: - return as is
+  if(!input) return '';
   if(/^javascript:/i.test(input)) return input;
-  // If already looks like http(s)
-  if(/^https?:\/\//i.test(input)) return input;
-  // If no scheme, add https
-  return 'https://' + input;
+  if(!/^https?:\/\//i.test(input)) input = 'https://' + input;
+  return input;
 }
 
 async function navigateTo(rawUrl, pushHistory=true){
   if(!rawUrl) return;
   const url = normalizeUrl(rawUrl);
+
+  // Keep input visible
+  urlInput.value = url;
   liveUrl.textContent = url;
-  // build proxied URL for iframe
+
+  if(url.startsWith('javascript:')){
+    runBookmarkletInIframe(url);
+    return;
+  }
+
   const prox = proxyBase + encodeURIComponent(url);
   webFrame.src = prox;
   webTitle.textContent = 'Loading: ' + url;
+
   if(pushHistory){
-    // maintain simple history
     historyStack = historyStack.slice(0, historyPos+1);
     historyStack.push(url);
     historyPos = historyStack.length - 1;
   }
-  // update navbar state
   updateNavButtons();
 }
 
-// navigation history buttons
+// History buttons
 function updateNavButtons(){
   backBtn.disabled = historyPos <= 0;
   forwardBtn.disabled = historyPos >= historyStack.length - 1;
 }
-
 backBtn.addEventListener('click', ()=>{
-  if(historyPos > 0) {
+  if(historyPos > 0){
     historyPos--;
     navigateTo(historyStack[historyPos], false);
   }
@@ -167,7 +171,7 @@ forwardBtn.addEventListener('click', ()=>{
   }
 });
 
-// submission
+// Form submit
 navForm.addEventListener('submit', e=>{
   e.preventDefault();
   const v = urlInput.value.trim();
@@ -175,7 +179,7 @@ navForm.addEventListener('submit', e=>{
   navigateTo(v, true);
 });
 
-// add bookmark
+// Add bookmark
 addBookmark.addEventListener('click', ()=>{
   const list = JSON.parse(localStorage.getItem('toast_bookmarks') || '[]');
   const url = urlInput.value.trim();
@@ -188,44 +192,30 @@ addBookmark.addEventListener('click', ()=>{
   toast('Bookmark saved', 'success');
 });
 
-// manage/bookmarks quick toggle
+// Toggle sidebar bookmarks
 manageBookmarks.addEventListener('click', ()=>{
   document.querySelector('.sidebar').classList.toggle('open');
 });
 
-// iframe load events - update page title and live url if proxied page navigates internally
+// Update live URL on iframe load
 webFrame.addEventListener('load', ()=>{
   try {
     const doc = webFrame.contentDocument;
     const title = (doc && doc.title) || webFrame.src;
     webTitle.textContent = title;
-    // If iframe has a canonical/original location value we can parse: the proxy injects original-url header into HTML as a comment
-    // But here we try to read location from a known DOM element injected by the proxy: <meta name="toast-original-url" content="...">
     const meta = doc && doc.querySelector('meta[name="toast-original-url"]');
     if(meta && meta.content){
       liveUrl.textContent = meta.content;
       urlInput.value = meta.content;
-    } else {
-      // fallback: if iframe src contains url=..., decode
-      const m = /[?&]url=([^&]+)/.exec(webFrame.src);
-      if(m) {
-        try {
-          const decoded = decodeURIComponent(m[1]);
-          liveUrl.textContent = decoded;
-          urlInput.value = decoded;
-        } catch(e){}
-      }
     }
   } catch(e){
-    // cross-origin error would be unexpected because proxy makes same-origin, but guard anyway
     console.warn('iframe load handling error', e);
   }
 });
 
-// initialize
+// --- Init ---
 (function init(){
   loadBookmarks();
-  // quick load from location hash: if user opens /#https://example.com
   if(location.hash && location.hash.length>1){
     const target = decodeURIComponent(location.hash.slice(1));
     urlInput.value = target;
