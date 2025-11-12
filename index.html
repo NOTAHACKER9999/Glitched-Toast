@@ -1,56 +1,46 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Toast Browser — Dark Proxy</title>
-  <link rel="stylesheet" href="/style.css" />
-  <meta name="description" content="Toast - Dark proxy browser UI (Opera GX style)" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Toast Browser</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="app" class="gx">
-    <header class="topbar">
-      <div class="brand">Toast</div>
-      <div class="controls">
-        <button id="backBtn" title="Back">◀</button>
-        <button id="forwardBtn" title="Forward">▶</button>
-        <div class="urlwrap">
-          <form id="navForm" autocomplete="off">
-            <input id="urlInput" placeholder="Enter URL or paste bookmarklet (e.g. https://example.com or javascript:alert(1))" />
-            <button id="goBtn" type="submit">Go</button>
-          </form>
-          <div id="liveUrl" class="live-url"></div>
-        </div>
-        <div class="bookmark-actions">
-          <button id="addBookmark">★</button>
-          <button id="manageBookmarks">≡</button>
-        </div>
-      </div>
-    </header>
-
-    <nav id="bookmarkBar" class="bookmark-bar" aria-label="Bookmarks"></nav>
-
-    <main class="main">
-      <section class="sidebar">
-        <h3>Bookmarks</h3>
-        <ul id="bookmarkList"></ul>
-      </section>
-
-      <section class="web-area">
-        <div id="webHeader" class="web-header">
-          <span id="webTitle">Web area — no page loaded</span>
-        </div>
-        <iframe id="webFrame" sandbox="allow-scripts allow-forms allow-same-origin allow-popups" srcdoc="<p>Load a site using the URL bar.</p>"></iframe>
-      </section>
-    </main>
-
-    <div id="toastRoot" class="toast-root" aria-live="polite"></div>
-
-    <footer class="footer">
-      <small>Toast Browser • Proxy UI</small>
-    </footer>
+  <!-- Top bar -->
+  <div class="topbar">
+    <button id="backBtn" title="Back">◀</button>
+    <button id="forwardBtn" title="Forward">▶</button>
+    <form id="navForm">
+      <input type="text" id="urlInput" placeholder="Enter URL or bookmarklet..." autocomplete="off">
+      <button type="submit" id="goBtn">Go</button>
+    </form>
+    <span id="liveUrl" class="liveUrl"></span>
+    <button id="addBookmark" title="Add Bookmark">★</button>
+    <button id="manageBookmarks" title="Manage Bookmarks">☰</button>
   </div>
 
-  <script type="module" src="/app.js"></script>
+  <!-- Bookmarks sidebar -->
+  <div class="sidebar">
+    <h3>Bookmarks</h3>
+    <ul id="bookmarkList"></ul>
+  </div>
+
+  <!-- Bookmarks bar -->
+  <div id="bookmarkBar" class="bookmarkBar"></div>
+
+  <!-- Web area -->
+  <div class="webContainer">
+    <iframe id="webFrame" sandbox="allow-scripts allow-forms allow-same-origin allow-popups"></iframe>
+  </div>
+
+  <!-- Page title -->
+  <div id="webTitle" class="webTitle"></div>
+
+  <!-- Toast notifications -->
+  <div id="toastRoot" class="toastRoot"></div>
+
+  <!-- JS -->
+  <script src="app.js"></script>
 </body>
 </html>
