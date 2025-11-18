@@ -2,11 +2,11 @@
   "name": "proxy-browser",
   "version": "1.0.0",
   "description": "Simple proxy browser using Express and node-fetch",
-  "main": "server.js",
+  "main": "index.html",
   "scripts": {
-    "start": "node server.js"
+    "start": "index.html"
   },
-  "dependencies": {
+    "dependencies": {
     "@mercuryworkshop/bare-mux": "^2.1.7",
     "@mercuryworkshop/epoxy-transport": "^2.1.28",
     "@mercuryworkshop/libcurl-transport": "^1.5.0",
@@ -19,5 +19,5 @@
     "helmet": "^8.1.0",
     "lru-cache": "^11.2.2",
     "node-fetch": "^3.3.2"
-  }
+    }
 }
