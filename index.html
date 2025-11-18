@@ -1,50 +1,233 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Proxy Browser</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Proxy Browser — Service Worker Config</title>
   <style>
-    body { margin:0; font-family:system-ui,Segoe UI,Roboto,Arial; height:100vh; display:flex; flex-direction:column; }
-    .top { display:flex; padding:8px; gap:8px; background:#111; color:#fff; align-items:center; }
-    input[type="text"]{ flex:1; padding:8px; border-radius:6px; border:1px solid #333; background:#222; color:#fff;}
-    button{ padding:8px 12px; border-radius:6px; border:0; background:#0b84ff; color:#fff; cursor:pointer;}
-    iframe { flex:1; width:100%; border:0; height:calc(100vh - 56px); }
+    :root{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial; color:#eaeaea; background:#0f1720}
+    body{margin:0; padding:18px; line-height:1.4}
+    .card{background:#111827; border:1px solid #1f2937; padding:14px; border-radius:10px; box-shadow:0 6px 18px rgba(2,6,23,.6)}
+    label{display:block; font-size:13px; color:#9ca3af; margin-bottom:6px}
+    input, select, button { font-size:14px; padding:8px 10px; border-radius:8px; border:1px solid #374151; background:#0b1220; color:#e6eef8; width:100%; box-sizing:border-box }
+    .row{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+    .actions{display:flex; gap:8px; margin-top:10px}
+    button{cursor:pointer; background:#0ea5a4; border:0}
+    button.secondary{background:#374151}
+    .small{font-size:12px; color:#9aa6b2}
+    iframe{width:100%; height:520px; border:1px solid #222; border-radius:8px; margin-top:12px}
+    pre.log{background:#071024; color:#cfeef8; padding:12px; border-radius:8px; max-height:220px; overflow:auto; margin-top:10px; border:1px solid #072035}
+    .hint{color:#9aa6b2; font-size:13px; margin-top:8px}
+    .flex{display:flex; gap:8px; align-items:center}
   </style>
 </head>
 <body>
-  <div class="top">
-    <input id="address" placeholder="Enter URL (e.g. https://example.com)" />
-    <button id="go">Go</button>
-    <button id="home">Home</button>
+  <h2 style="margin:0 0 12px 0">Proxy Browser — service worker config</h2>
+
+  <div class="card">
+    <div>
+      <label>Service worker file location (relative to this origin)</label>
+      <input id="swPath" value="/PROXY/sw.js" placeholder="/PROXY/sw.js" />
+      <div class="hint">Where your sw.js lives on this origin (must be same origin). Example: <code>/PROXY/sw.js</code></div>
+    </div>
+
+    <div style="margin-top:10px" class="row">
+      <div>
+        <label>Registration scope</label>
+        <select id="scopeSelect">
+          <option value="/b/s/">/b/s/ (Scramjet style)</option>
+          <option value="/b/u/hi/">/b/u/hi/ (Ultraviolet style)</option>
+          <option value="/">/ (root scope)</option>
+          <option value="/b/">/b/ (generic)</option>
+        </select>
+        <div class="hint">The SW intercepts only requests under this path. Choose the suffix the worker expects.</div>
+      </div>
+
+      <div>
+        <label>Client path prefix (where proxied pages will be loaded)</label>
+        <input id="clientPrefix" value="/b/s/" />
+        <div class="hint">This prefix will be used to build proxied URLs like <code>/b/s/https://example.com/</code>.</div>
+      </div>
+    </div>
+
+    <div style="margin-top:10px;">
+      <label>Target URL to open through proxy</label>
+      <input id="targetUrl" value="https://example.com/" placeholder="https://example.com/" />
+    </div>
+
+    <div class="actions">
+      <button id="registerBtn">Register SW</button>
+      <button id="unregisterBtn" class="secondary">Unregister SW</button>
+      <button id="openProxyBtn" class="secondary">Open proxied URL</button>
+      <button id="reloadClientsBtn" class="secondary">Reload controlled clients</button>
+    </div>
+
+    <div style="margin-top:12px;">
+      <label>Proxied URL (constructed)</label>
+      <input id="proxiedUrl" readonly />
+      <div class="hint">You can edit the target or client prefix and press "Open proxied URL" — the iframe below will navigate there.</div>
+    </div>
+
+    <div style="margin-top:12px;">
+      <div class="flex">
+        <div class="small">Service worker status:</div>
+        <div id="swStatus" style="margin-left:8px; color:#9ae6a0">unknown</div>
+      </div>
+      <pre id="log" class="log"></pre>
+    </div>
   </div>
-  <iframe id="view" src="/"></iframe>
 
-  <script>
-    const address = document.getElementById('address');
-    const go = document.getElementById('go');
-    const home = document.getElementById('home');
-    const view = document.getElementById('view');
+  <iframe id="proxyFrame" sandbox="allow-scripts allow-forms allow-same-origin" srcdoc="<body style='background:#0b1220;color:#9aa6b2;display:flex;align-items:center;justify-content:center;height:100%'><div style='text-align:center'><strong>Proxy iframe</strong><div style='margin-top:8px' class='small'>Load a proxied URL from above</div></div></body>"></iframe>
 
-    function proxyUrl(u) {
-      return '/proxy?url=' + encodeURIComponent(u);
+<script>
+  // Utility logger
+  const logEl = document.getElementById('log');
+  function log(...args){
+    const now = new Date().toISOString().replace('T',' ').replace('Z','');
+    logEl.textContent = [now, ...args.map(a => (typeof a === 'object' ? JSON.stringify(a) : a))].join(' | ') + '\n' + logEl.textContent;
+  }
+
+  const swPathEl = document.getElementById('swPath');
+  const scopeSelect = document.getElementById('scopeSelect');
+  const clientPrefix = document.getElementById('clientPrefix');
+  const targetUrl = document.getElementById('targetUrl');
+  const proxiedUrlEl = document.getElementById('proxiedUrl');
+  const swStatusEl = document.getElementById('swStatus');
+  const iframe = document.getElementById('proxyFrame');
+
+  // build proxied URL (simple encoding strategy)
+  function buildProxied() {
+    const prefix = clientPrefix.value || '/b/s/';
+    const target = targetUrl.value || '';
+    // We prefer a clear encoding so your SW can decode easily.
+    // We'll encode using encodeURIComponent so slashes and query strings are preserved safely.
+    // Example final path: /b/s/https%3A%2F%2Fexample.com%2F
+    const encoded = encodeURIComponent(target);
+    // keep a trailing slash if present in target
+    const final = prefix + encoded;
+    proxiedUrlEl.value = final;
+    return final;
+  }
+
+  targetUrl.addEventListener('input', buildProxied);
+  clientPrefix.addEventListener('input', buildProxied);
+  buildProxied();
+
+  // register service worker
+  document.getElementById('registerBtn').addEventListener('click', async () => {
+    const swPath = swPathEl.value.trim() || '/PROXY/sw.js';
+    const scope = scopeSelect.value || '/b/s/';
+    log('Registering', swPath, 'scope', scope);
+    try {
+      if (!('serviceWorker' in navigator)) {
+        throw new Error('Service workers are not supported in this browser.');
+      }
+      const reg = await navigator.serviceWorker.register(swPath, { scope });
+      log('Registration successful', reg);
+      swStatusEl.textContent = `registered (scope=${reg.scope})`;
+      // wait until active
+      if (reg.installing) log('SW installing...');
+      if (reg.waiting) log('SW waiting...');
+      if (reg.active) {
+        log('SW active');
+        swStatusEl.textContent = `active (scope=${reg.scope})`;
+      }
+      // listen for updates on the registration
+      reg.addEventListener('updatefound', () => {
+        log('updatefound ->', reg);
+      });
+      // show controlled clients
+      const clients = await navigator.serviceWorker.getRegistrations();
+      log('Active registrations count', clients.length);
+    } catch (err) {
+      log('Registration failed:', err.message || err);
+      swStatusEl.textContent = 'registration failed';
     }
+  });
 
-    go.addEventListener('click', () => {
-      let u = address.value.trim();
-      if (!u) return;
-      if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
-      view.src = proxyUrl(u);
-    });
+  // unregister service worker
+  document.getElementById('unregisterBtn').addEventListener('click', async () => {
+    const swPath = swPathEl.value.trim() || '/PROXY/sw.js';
+    log('Unregistering workers that match', swPath);
+    try {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      let removed = 0;
+      for (const r of regs) {
+        // attempt to match by scriptURL ending
+        if (r.active && r.active.scriptURL && r.active.scriptURL.endsWith(swPath)) {
+          const ok = await r.unregister();
+          log('Unregister returned', ok, 'for', r);
+          removed++;
+        } else if (r.installing && r.installing.scriptURL && r.installing.scriptURL.endsWith(swPath)) {
+          const ok = await r.unregister();
+          log('Unregister returned', ok, 'for installing', r);
+          removed++;
+        }
+      }
+      if (!removed) log('No registrations matched the provided swPath.');
+      else log('Unregistered', removed, 'registrations.');
+      swStatusEl.textContent = 'unregistered (check console)';
+    } catch (err) {
+      log('Unregister failed:', err.message || err);
+    }
+  });
 
-    address.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') go.click();
-    });
+  // Open proxied URL in iframe
+  document.getElementById('openProxyBtn').addEventListener('click', () => {
+    const proxied = buildProxied();
+    log('Opening proxied URL in iframe:', proxied);
+    // If you want the iframe to be "controlled" by the service worker, its URL must be under the service worker scope.
+    // We construct a path on this origin under the chosen clientPrefix. Your SW should decode the encoded URL and proxy accordingly.
+    iframe.src = proxied;
+  });
 
-    home.addEventListener('click', () => {
-      address.value = '';
-      view.src = '/';
-    });
-  </script>
+  // reload all controlled clients
+  document.getElementById('reloadClientsBtn').addEventListener('click', async () => {
+    if (!navigator.serviceWorker.controller) {
+      log('No active service worker controlling this page.');
+      return;
+    }
+    log('Sending message to service worker to reload clients (if supported)');
+    try {
+      // Try using postMessage to tell SW to reload clients — your SW can implement message handling.
+      navigator.serviceWorker.controller.postMessage({ type: 'RELOAD_CLIENTS' });
+      log('Message posted to controller.');
+    } catch (err) {
+      log('Failed to message controller:', err);
+    }
+  });
+
+  // show current registration(s) on load
+  (async function showRegs(){
+    if (!('serviceWorker' in navigator)) {
+      swStatusEl.textContent = 'not supported';
+      log('Service workers not supported in this browser.');
+      return;
+    }
+    try {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      if (!regs.length) {
+        swStatusEl.textContent = 'no registrations';
+        log('No service worker registrations found.');
+        return;
+      }
+      for (const r of regs) {
+        log('Found registration: scope=' + r.scope + ' script=' + (r.active?.scriptURL || r.installing?.scriptURL || r.waiting?.scriptURL));
+      }
+      swStatusEl.textContent = `${regs.length} registration(s) found`;
+    } catch (err) {
+      log('Error enumerating registrations:', err);
+      swStatusEl.textContent = 'error';
+    }
+  })();
+
+  // Optional: listen for messages from SW
+  navigator.serviceWorker?.addEventListener?.('message', ev => {
+    log('Message from SW:', ev.data);
+  });
+
+  // Warn/notes for user
+  log('Tool ready. Make sure sw.js is reachable and on the same origin. If your SW expects raw path segments instead of encoded, change buildProxied encoding in the page.');
+</script>
 </body>
 </html>
