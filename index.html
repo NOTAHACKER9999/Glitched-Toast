@@ -1,0 +1,50 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Proxy Browser</title>
+  <style>
+    body { margin:0; font-family:system-ui,Segoe UI,Roboto,Arial; height:100vh; display:flex; flex-direction:column; }
+    .top { display:flex; padding:8px; gap:8px; background:#111; color:#fff; align-items:center; }
+    input[type="text"]{ flex:1; padding:8px; border-radius:6px; border:1px solid #333; background:#222; color:#fff;}
+    button{ padding:8px 12px; border-radius:6px; border:0; background:#0b84ff; color:#fff; cursor:pointer;}
+    iframe { flex:1; width:100%; border:0; height:calc(100vh - 56px); }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <input id="address" placeholder="Enter URL (e.g. https://example.com)" />
+    <button id="go">Go</button>
+    <button id="home">Home</button>
+  </div>
+  <iframe id="view" src="/"></iframe>
+
+  <script>
+    const address = document.getElementById('address');
+    const go = document.getElementById('go');
+    const home = document.getElementById('home');
+    const view = document.getElementById('view');
+
+    function proxyUrl(u) {
+      return '/proxy?url=' + encodeURIComponent(u);
+    }
+
+    go.addEventListener('click', () => {
+      let u = address.value.trim();
+      if (!u) return;
+      if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+      view.src = proxyUrl(u);
+    });
+
+    address.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') go.click();
+    });
+
+    home.addEventListener('click', () => {
+      address.value = '';
+      view.src = '/';
+    });
+  </script>
+</body>
+</html>
