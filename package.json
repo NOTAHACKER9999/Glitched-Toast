@@ -1,0 +1,23 @@
+{
+  "name": "proxy-browser",
+  "version": "1.0.0",
+  "description": "Simple proxy browser using Express and node-fetch",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@mercuryworkshop/bare-mux": "^2.1.7",
+    "@mercuryworkshop/epoxy-transport": "^2.1.28",
+    "@mercuryworkshop/libcurl-transport": "^1.5.0",
+    "@titaniumnetwork-dev/ultraviolet": "^3.2.10",
+    "wisp-server-node": "1.1.7",
+    "compression": "^1.7.4",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
+    "lru-cache": "^11.2.2",
+    "node-fetch": "^3.3.2"
+  }
+}
